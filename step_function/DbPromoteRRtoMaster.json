@@ -1,0 +1,69 @@
+{
+    "StartAt": "1NotifyUserStart",
+    "States": {
+      "1NotifyUserStart": {
+        "Type": "Task",
+        "Resource": "arn:aws:states:::sns:publish",
+        "Parameters": {
+          "TopicArn": "arn:aws:sns:us-east-1:159184006576:EmailAlertTopic",
+          "Message": "Attention! RDS failure event occured"
+        },
+        "Next": "2wait_till_ReplicaToBeInSync_complete"
+      },
+      "2wait_till_ReplicaToBeInSync_complete": {
+        "Type": "Wait",
+        "Seconds": 60,
+        "Next": "3promoteRRtoMaster"
+      },
+      "3promoteRRtoMaster": {
+        "Type": "Task",
+        "Resource": "arn:aws:states:::lambda:invoke",
+        "Parameters": {
+          "FunctionName": "promoteRRtoMaster"
+        },
+        "Next": "4wait_till_promoteRR_complete"
+      },
+      "4wait_till_promoteRR_complete": {
+        "Type": "Wait",
+        "Seconds": 300,
+        "Next": "5dbInstanceStatusCheck"
+      },
+      "5dbInstanceStatusCheck": {
+        "Type": "Task",
+        "Resource": "arn:aws:lambda:us-east-1:159184006576:function:dbInstanceStatusCheck",
+        "Next": "IsDbEndPointAvailable?"
+      },
+      "IsDbEndPointAvailable?": {
+        "Type": "Choice",
+        "Choices": [
+          {
+            "Variable": "$.db_status",
+            "StringEquals": "available",
+            "Next": "6dbR53CnameSwitch"
+          }
+        ],
+        "Default": "WaitforDBtobeAvailable"
+      },
+      "6dbR53CnameSwitch": {
+        "Type": "Task",
+        "InputPath": "$",
+        "ResultPath": "$.db_endpoint_address",
+        "Resource": "arn:aws:lambda:us-east-1:159184006576:function:dbR53CnameSwitch",
+        "Next": "7NotifyUserEnd"
+      },
+      "WaitforDBtobeAvailable": {
+        "Type": "Wait",
+        "Seconds": 60,
+        "Next": "5dbInstanceStatusCheck"
+      },
+      "7NotifyUserEnd": {
+        "Type": "Task",
+        "Resource": "arn:aws:states:::sns:publish",
+        "Parameters": {
+          "TopicArn": "arn:aws:sns:us-east-1:159184006576:EmailAlertTopic",
+          "Message": "Relax! RR has been promoted into Primary Db to handle traffic"
+        },
+        "End": true
+      }
+    }
+  }
